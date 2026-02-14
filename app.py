@@ -7,9 +7,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Page configuration
 st.set_page_config(
@@ -65,61 +64,80 @@ def load_models():
     return models
 
 def create_comparison_chart(results_df, metric):
-    """Create bar chart for metric comparison"""
-    fig = px.bar(
-        x=results_df.index,
-        y=results_df[metric],
-        labels={'x': 'Model', 'y': metric},
-        title=f'{metric} Comparison Across Models',
-        color=results_df[metric],
-        color_continuous_scale='viridis'
+    """Create bar chart for metric comparison using Matplotlib/Seaborn"""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Create barplot
+    sns.barplot(
+        x=results_df.index, 
+        y=results_df[metric], 
+        hue=results_df.index, 
+        palette='viridis', 
+        ax=ax,
+        legend=False 
     )
-    fig.update_layout(
-        xaxis_tickangle=-45,
-        height=400,
-        showlegend=False
-    )
+    
+    ax.set_title(f'{metric} Comparison Across Models')
+    ax.set_ylabel(metric)
+    ax.set_xlabel('Model')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    
     return fig
 
 def create_radar_chart(results_df):
-    """Create radar chart for all metrics"""
-    fig = go.Figure()
-    
+    """Create radar chart for all metrics using Matplotlib"""
     metrics = ['Accuracy', 'AUC', 'Precision', 'Recall', 'F1']
     
-    for model in results_df.index:
-        fig.add_trace(go.Scatterpolar(
-            r=results_df.loc[model, metrics].values,
-            theta=metrics,
-            fill='toself',
-            name=model
-        ))
+    # Number of variables
+    N = len(metrics)
     
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, 1]
-            )),
-        showlegend=True,
-        title="Model Performance Radar Chart",
-        height=600
-    )
+    # Compute angle for each axis
+    angles = [n / float(N) * 2 * np.pi for n in range(N)]
+    angles += angles[:1]  # Close the loop
+    
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+    
+    # Draw one axe per variable + add labels
+    plt.xticks(angles[:-1], metrics)
+    
+    # Draw ylabels
+    ax.set_rlabel_position(0)
+    plt.yticks([0.2, 0.4, 0.6, 0.8], ["0.2", "0.4", "0.6", "0.8"], color="grey", size=7)
+    plt.ylim(0, 1)
+    
+    # Plot each model
+    colors = plt.cm.viridis(np.linspace(0, 1, len(results_df)))
+    
+    for idx, (model_name, row) in enumerate(results_df.iterrows()):
+        values = row[metrics].values.flatten().tolist()
+        values += values[:1]  # Close the loop
+        
+        ax.plot(angles, values, linewidth=1, linestyle='solid', label=model_name, color=colors[idx])
+        ax.fill(angles, values, alpha=0.1, color=colors[idx])
+    
+    plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
+    plt.title("Model Performance Radar Chart")
     
     return fig
 
 def create_heatmap(results_df):
-    """Create heatmap of all metrics"""
-    fig = px.imshow(
-        results_df.T,
-        labels=dict(x="Model", y="Metric", color="Score"),
-        x=results_df.index,
-        y=results_df.columns,
-        color_continuous_scale="RdYlGn",
-        aspect="auto",
-        title="Model Performance Heatmap"
+    """Create heatmap of all metrics using Seaborn"""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    sns.heatmap(
+        results_df, 
+        annot=True, 
+        cmap='RdYlGn', 
+        fmt='.3f', 
+        ax=ax,
+        vmin=0, 
+        vmax=1
     )
-    fig.update_layout(height=500)
+    
+    ax.set_title("Model Performance Heatmap")
+    plt.tight_layout()
+    
     return fig
 
 def main():
@@ -148,7 +166,7 @@ def main():
         with col1:
             st.metric("Total Models", "6")
         with col2:
-            st.metric("Dataset Features", "13")
+            st.metric("Dataset Features", "12")
         with col3:
             st.metric("Dataset Instances", "6,497")
         
@@ -160,7 +178,7 @@ def main():
         **Source:** UCI Machine Learning Repository  
         **Type:** Binary Classification (Wine Quality: Good/Poor)
         
-        **Features:** 13 features including:
+        **Features:** 12 features (11 physicochemical + 1 type) including:
         - **Acidity features:** fixed acidity, volatile acidity, citric acid, pH
         - **Sugar & density:** residual sugar, density
         - **Salts:** chlorides, free sulfur dioxide, total sulfur dioxide
@@ -219,10 +237,7 @@ def main():
             )
         
         # Bar chart
-        st.plotly_chart(
-            create_comparison_chart(results_df, selected_metric),
-            use_container_width=True
-        )
+        st.pyplot(create_comparison_chart(results_df, selected_metric))
         
         st.markdown("---")
         
@@ -234,9 +249,9 @@ def main():
         )
         
         if viz_type == "Radar Chart":
-            st.plotly_chart(create_radar_chart(results_df), use_container_width=True)
+            st.pyplot(create_radar_chart(results_df))
         else:
-            st.plotly_chart(create_heatmap(results_df), use_container_width=True)
+            st.pyplot(create_heatmap(results_df))
     
     elif page == "Model Details":
         st.header("🔍 Detailed Model Analysis")
@@ -276,32 +291,33 @@ def main():
             'Logistic Regression': """
             Logistic Regression provides a good baseline performance with interpretable results. 
             It works well for linearly separable data and provides probabilistic predictions. 
-            The model shows balanced precision and recall, making it suitable for clinical applications.
+            The model shows balanced precision and recall, suitable for classification tasks where
+            interpretability is key.
             """,
             'Decision Tree': """
             Decision Tree offers high interpretability with clear decision rules. However, it may 
             suffer from overfitting if not properly pruned. The model captures non-linear relationships 
-            well but can be sensitive to small variations in the data.
+            well but can be sensitive to small variations in chemical properties.
             """,
             'K-Nearest Neighbor': """
-            KNN provides good performance for this dataset with moderate computational cost during prediction. 
-            The model is sensitive to feature scaling and performs well when similar patients have similar outcomes. 
-            However, it can be slower for large datasets.
+            KNN provides good performance for local neighborhoods of data points. 
+            The model is sensitive to feature scaling (physicochemical properties vary in range).
+            It performs well when wines with similar properties have similar quality ratings.
             """,
             'Naive Bayes': """
-            Gaussian Naive Bayes is fast and efficient, especially for smaller datasets. 
-            Despite the independence assumption between features, it performs reasonably well. 
-            It's particularly useful when training data is limited.
+            Gaussian Naive Bayes is fast and efficient. 
+            Despite the independence assumption between physicochemical features (which may not always hold true),
+            it performs reasonably well and is useful as a baseline.
             """,
             'Random Forest': """
             Random Forest ensemble provides robust performance with reduced overfitting compared to single 
-            decision trees. It handles feature interactions well and provides feature importance rankings. 
-            Generally achieves high accuracy with good generalization.
+            decision trees. It handles interactions between chemical features well and provides feature importance rankings. 
+            Generally achieves high accuracy.
             """,
             'XGBoost': """
             XGBoost typically achieves the best performance among all models due to its gradient boosting 
-            approach and regularization. It handles imbalanced data well and provides excellent predictive 
-            power. Requires careful hyperparameter tuning for optimal results.
+            approach and regularization. It handles complex non-linear relationships between ingredients
+            and quality well.
             """
         }
         
@@ -333,47 +349,42 @@ def main():
             return
         
         # Input form
-        st.subheader("Patient Information")
+        st.subheader("Wine Characteristics")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            age = st.slider("Age", 20, 80, 50)
-            sex = st.selectbox("Sex", [1, 0], format_func=lambda x: "Male" if x == 1 else "Female")
-            cp = st.selectbox("Chest Pain Type", [0, 1, 2, 3])
-            trestbps = st.slider("Resting Blood Pressure", 90, 200, 120)
-            chol = st.slider("Cholesterol", 100, 400, 200)
-        
+            fixed_acidity = st.slider("Fixed Acidity", 4.0, 16.0, 7.0)
+            volatile_acidity = st.slider("Volatile Acidity", 0.1, 1.6, 0.3)
+            citric_acid = st.slider("Citric Acid", 0.0, 1.0, 0.3)
+            residual_sugar = st.slider("Residual Sugar", 0.5, 66.0, 2.0)
+            
         with col2:
-            fbs = st.selectbox("Fasting Blood Sugar > 120", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-            restecg = st.selectbox("Resting ECG", [0, 1, 2])
-            thalach = st.slider("Max Heart Rate", 60, 220, 150)
-            exang = st.selectbox("Exercise Induced Angina", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-            oldpeak = st.slider("ST Depression", 0.0, 6.0, 1.0, 0.1)
-        
+            chlorides = st.slider("Chlorides", 0.01, 0.6, 0.05)
+            free_sulfur_dioxide = st.slider("Free Sulfur Dioxide", 1.0, 72.0, 30.0)
+            total_sulfur_dioxide = st.slider("Total Sulfur Dioxide", 6.0, 289.0, 100.0)
+            density = st.slider("Density", 0.98, 1.04, 0.99, step=0.001, format="%.4f")
+
         with col3:
-            slope = st.selectbox("Slope", [0, 1, 2])
-            ca = st.selectbox("Number of Major Vessels", [0, 1, 2, 3])
-            thal = st.selectbox("Thalassemia", [0, 1, 2, 3])
-        
-        # Feature engineering
-        age_chol_interaction = age * chol
-        bp_heart_rate_ratio = trestbps / (thalach + 1)
-        age_squared = age ** 2
+            pH = st.slider("pH", 2.7, 4.0, 3.2)
+            sulphates = st.slider("Sulphates", 0.2, 2.0, 0.5)
+            alcohol = st.slider("Alcohol", 8.0, 15.0, 10.0)
+            wine_type = st.radio("Wine Type", ["Red", "White"], horizontal=True)
+            wine_type_val = 1 if wine_type == "Red" else 0
         
         if st.button("Predict", type="primary"):
             # Prepare input
-            input_data = np.array([[age, sex, cp, trestbps, chol, fbs, restecg, thalach, 
-                                    exang, oldpeak, slope, ca, thal, age_chol_interaction,
-                                    bp_heart_rate_ratio, age_squared]])
+            input_data = np.array([[fixed_acidity, volatile_acidity, citric_acid, residual_sugar,
+                                    chlorides, free_sulfur_dioxide, total_sulfur_dioxide, density,
+                                    pH, sulphates, alcohol, wine_type_val]])
             
             # Load scaler
             try:
                 with open('model/scaler.pkl', 'rb') as f:
                     scaler = pickle.load(f)
                 input_scaled = scaler.transform(input_data)
-            except:
-                st.error("Scaler not found. Please train the models first.")
+            except Exception as e:
+                st.error(f"Error loading scaler or transforming data: {str(e)}")
                 return
             
             st.markdown("---")
@@ -391,7 +402,7 @@ def main():
                         proba = model.predict_proba(input_data)[0]
                     
                     predictions[model_name] = {
-                        'Prediction': 'Disease' if pred == 1 else 'No Disease',
+                        'Prediction': 'Good Quality' if pred == 1 else 'Poor Quality',
                         'Probability': proba[1]
                     }
                 except Exception as e:
@@ -406,23 +417,23 @@ def main():
             )
             
             # Consensus prediction
-            disease_count = sum([1 for p in predictions.values() if p['Prediction'] == 'Disease'])
+            good_quality_count = sum([1 for p in predictions.values() if p['Prediction'] == 'Good Quality'])
             
             st.markdown("---")
             st.subheader("Consensus Prediction")
             
-            if disease_count >= 4:
-                st.error(f"⚠️ **MAJORITY PREDICTION: Heart Disease Detected** ({disease_count}/6 models)")
-            elif disease_count >= 3:
-                st.warning(f"⚠️ **SPLIT PREDICTION: Inconclusive** ({disease_count}/6 models predict disease)")
+            if good_quality_count >= 4:
+                st.success(f"✅ **MAJORITY PREDICTION: Good Quality Wine** ({good_quality_count}/6 models)")
+            elif good_quality_count >= 3:
+                st.warning(f"⚠️ **SPLIT PREDICTION: Inconclusive** ({good_quality_count}/6 models predict Good Quality)")
             else:
-                st.success(f"✅ **MAJORITY PREDICTION: No Heart Disease** ({6-disease_count}/6 models)")
+                st.error(f"❌ **MAJORITY PREDICTION: Poor Quality Wine** ({6-good_quality_count}/6 models)")
     
     # Footer
     st.markdown("---")
     st.markdown("""
         <div style='text-align: center; color: gray;'>
-            <p>Machine Learning Classification Assignment | Heart Disease Prediction</p>
+            <p>Machine Learning Classification Assignment | Wine Quality Prediction</p>
         </div>
     """, unsafe_allow_html=True)
 
