@@ -7,8 +7,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
 import seaborn as sns
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score
+
 
 # Page configuration
 st.set_page_config(
@@ -439,3 +441,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
