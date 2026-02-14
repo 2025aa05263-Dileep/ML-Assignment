@@ -9,8 +9,7 @@ import numpy as np
 import pickle
 from matplotlib import pyplot as plt
 import seaborn as sns
-from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score
-
+from sklearn import metrics as mts
 
 # Page configuration
 st.set_page_config(
@@ -43,27 +42,49 @@ def load_results():
         st.error("Model results not found. Please run train_models.py first.")
         return None
 
+@st.cache_data
+def load_test_data():
+    """Load test data for confusion matrix generation"""
+    try:
+        with open('model/test_data.pkl', 'rb') as f:
+            data = pickle.load(f)
+        return data
+    except FileNotFoundError:
+        st.error("Test data not found. Please run train_models.py first.")
+        return None
+
 @st.cache_resource
 def load_models():
     """Load all trained models"""
-    model_names = [
-        'logistic_regression_model.pkl',
-        'decision_tree_model.pkl',
-        'k_nearest_neighbor_model.pkl',
-        'naive_bayes_model.pkl',
-        'random_forest_model.pkl',
-        'xgboost_model.pkl'
-    ]
+    model_mapping = {
+        'Logistic Regression': 'logistic_regression_model.pkl',
+        'Decision Tree': 'decision_tree_model.pkl',
+        'K-Nearest Neighbor': 'k_nearest_neighbor_model.pkl',
+        'Naive Bayes': 'naive_bayes_model.pkl',
+        'Random Forest': 'random_forest_model.pkl',
+        'XGBoost': 'xgboost_model.pkl'
+    }
     
     models = {}
-    for model_name in model_names:
+    for display_name, file_name in model_mapping.items():
         try:
-            with open(f'model/{model_name}', 'rb') as f:
-                models[model_name.replace('_model.pkl', '').replace('_', ' ').title()] = pickle.load(f)
+            with open(f'model/{file_name}', 'rb') as f:
+                models[display_name] = pickle.load(f)
         except FileNotFoundError:
             continue
     
     return models
+
+@st.cache_resource
+def load_scaler():
+    """Load the scaler"""
+    try:
+        with open('model/scaler.pkl', 'rb') as f:
+            scaler = pickle.load(f)
+        return scaler
+    except FileNotFoundError:
+        st.error("Scaler not found. Please run train_models.py first.")
+        return None
 
 def create_comparison_chart(results_df, metric):
     """Create bar chart for metric comparison using Matplotlib/Seaborn"""
@@ -142,6 +163,17 @@ def create_heatmap(results_df):
     
     return fig
 
+def plot_confusion_matrix(y_true, y_pred, class_names=['Poor', 'Good']):
+    """Plot confusion matrix"""
+    cm = mts.confusion_matrix(y_true, y_pred)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
+                xticklabels=class_names, yticklabels=class_names)
+    ax.set_xlabel('Predicted Label')
+    ax.set_ylabel('True Label')
+    ax.set_title('Confusion Matrix')
+    return fig
+
 def main():
     st.title("🍷 Machine Learning Classification Model Comparison")
     st.markdown("### Wine Quality Prediction - UCI Dataset")
@@ -150,13 +182,16 @@ def main():
     st.sidebar.title("Navigation")
     page = st.sidebar.radio(
         "Select Page",
-        ["Overview", "Model Comparison", "Model Details", "Predictions"]
+        ["Overview", "Model Comparison", "Model Details", "Predictions", "Custom Data Prediction"]
     )
     
     # Load results
     results_df = load_results()
+    test_data = load_test_data()
+    models = load_models()
+    scaler = load_scaler()
     
-    if results_df is None:
+    if results_df is None or test_data is None or not models or scaler is None:
         st.warning("⚠️ Please run `python model/train_models.py` first to train the models.")
         return
     
@@ -224,7 +259,7 @@ def main():
         st.subheader("Performance Metrics Table")
         st.dataframe(
             results_df.style.highlight_max(axis=0, color='lightgreen')
-                           .format("{:.4f}"),
+                            .format("{:.4f}"),
             use_container_width=True
         )
         
@@ -246,7 +281,7 @@ def main():
         # Visualization selector
         viz_type = st.radio(
             "Select Visualization Type",
-            ["Radar Chart", "Heatmap"],
+            ["Heatmap", "Radar Chart"],
             horizontal=True
         )
         
@@ -262,30 +297,7 @@ def main():
             "Select Model",
             results_df.index.tolist()
         )
-        
-        st.subheader(f"Performance Metrics: {selected_model}")
-        
-        # Display metrics in columns
-        metrics = results_df.loc[selected_model]
-        
-        col1, col2, col3 = st.columns(3)
-        col4, col5, col6 = st.columns(3)
-        
-        with col1:
-            st.metric("Accuracy", f"{metrics['Accuracy']:.4f}")
-        with col2:
-            st.metric("AUC Score", f"{metrics['AUC']:.4f}")
-        with col3:
-            st.metric("Precision", f"{metrics['Precision']:.4f}")
-        with col4:
-            st.metric("Recall", f"{metrics['Recall']:.4f}")
-        with col5:
-            st.metric("F1 Score", f"{metrics['F1']:.4f}")
-        with col6:
-            st.metric("MCC Score", f"{metrics['MCC']:.4f}")
-        
-        st.markdown("---")
-        
+
         # Model observations
         st.subheader("Model Observations")
         
@@ -324,10 +336,65 @@ def main():
         }
         
         st.info(observations.get(selected_model, "No observation available for this model."))
+
+        st.markdown("---")
         
+        
+        st.subheader(f"Performance Metrics: {selected_model}")
+        
+        # Display metrics in columns
+        metrics = results_df.loc[selected_model]
+        
+        col1, col2, col3 = st.columns(3)
+        col4, col5, col6 = st.columns(3)
+        
+        with col1:
+            st.metric("Accuracy", f"{metrics['Accuracy']:.4f}")
+        with col2:
+            st.metric("AUC Score", f"{metrics['AUC']:.4f}")
+        with col3:
+            st.metric("Precision", f"{metrics['Precision']:.4f}")
+        with col4:
+            st.metric("Recall", f"{metrics['Recall']:.4f}")
+        with col5:
+            st.metric("F1 Score", f"{metrics['F1']:.4f}")
+        with col6:
+            st.metric("MCC Score", f"{metrics['MCC']:.4f}")
+        
+        st.markdown("---")
+        
+        # Confusion Matrix and Classification Report
+        st.subheader("Confusion Matrix & Classification Report")
+        
+        model = models[selected_model]
+        
+        # Prepare data based on model type
+        if 'Logistic' in selected_model or 'Nearest' in selected_model:
+            X_eval = test_data['X_test_scaled']
+        else:
+            X_eval = test_data['X_test']
+            
+        y_pred = model.predict(X_eval)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Confusion Matrix**")
+            st.pyplot(plot_confusion_matrix(test_data['y_test'], y_pred))
+            
+        with col2:
+            st.markdown("**Classification Report**")
+            report = mts.classification_report(test_data['y_test'], y_pred, output_dict=True)
+            report_df = pd.DataFrame(report).transpose()
+            st.dataframe(report_df.style.format("{:.3f}"))
+        
+    
         # Comparison with best model
         best_model = results_df['F1'].idxmax()
-        if selected_model != best_model:
+        if selected_model == best_model:
+            st.markdown("---")
+            st.success(f"✅ **{selected_model} is the best model**")
+        else:
             st.markdown("---")
             st.subheader(f"Comparison with Best Model ({best_model})")
             
@@ -380,13 +447,10 @@ def main():
                                     chlorides, free_sulfur_dioxide, total_sulfur_dioxide, density,
                                     pH, sulphates, alcohol, wine_type_val]])
             
-            # Load scaler
             try:
-                with open('model/scaler.pkl', 'rb') as f:
-                    scaler = pickle.load(f)
                 input_scaled = scaler.transform(input_data)
             except Exception as e:
-                st.error(f"Error loading scaler or transforming data: {str(e)}")
+                st.error(f"Error transforming data: {str(e)}")
                 return
             
             st.markdown("---")
@@ -430,7 +494,87 @@ def main():
                 st.warning(f"⚠️ **SPLIT PREDICTION: Inconclusive** ({good_quality_count}/6 models predict Good Quality)")
             else:
                 st.error(f"❌ **MAJORITY PREDICTION: Poor Quality Wine** ({6-good_quality_count}/6 models)")
-    
+
+    elif page == "Custom Data Prediction":
+        st.header("📂 Custom Data Prediction")
+        st.info("Upload a CSV file containing test data to evaluate models or make batch predictions.")
+
+        uploaded_file = st.file_uploader("Upload CSV", type="csv")
+        
+        if uploaded_file is not None:
+            try:
+                # Read CSV
+                df_upload = pd.read_csv(uploaded_file, sep=';' if uploaded_file.name.endswith('.csv') else ',')
+                
+                # Check for target column
+                target_col = 'target' if 'target' in df_upload.columns else ('quality' if 'quality' in df_upload.columns else None)
+                
+                # If target is quality (score), convert to binary
+                if target_col == 'quality':
+                     df_upload['target'] = (df_upload['quality'] >= 6).astype(int)
+                     df_upload = df_upload.drop('quality', axis=1)
+                     target_col = 'target'
+                
+                st.write("Preview of uploaded data:")
+                st.dataframe(df_upload.head())
+                
+                # Model selection
+                selected_model_upload = st.selectbox("Select Model for prediction", list(models.keys()))
+                model_upload = models[selected_model_upload]
+                
+                # Prepare features
+                expected_features = test_data['feature_names']
+                
+                # Check if all features exist
+                missing_cols = [col for col in expected_features if col not in df_upload.columns]
+                
+                if missing_cols:
+                    st.error(f"Missing columns in uploaded file: {missing_cols}")
+                else:
+                    X_upload = df_upload[expected_features]
+                    
+                    # Transform if needed
+                    if 'Logistic' in selected_model_upload or 'Nearest' in selected_model_upload:
+                         X_input = scaler.transform(X_upload)
+                    else:
+                         X_input = X_upload
+                    
+                    if st.button("Run Prediction"):
+                        y_pred_upload = model_upload.predict(X_input)
+                        
+                        # Add predictions to dataframe
+                        df_results = df_upload.copy()
+                        df_results['Prediction'] = ['Good Quality' if p == 1 else 'Poor Quality' for p in y_pred_upload]
+                        
+                        st.subheader("Prediction Results")
+                        st.dataframe(df_results)
+                        
+                        # If target column exists, show evaluation
+                        if target_col:
+                            y_true_upload = df_upload[target_col]
+                            
+                            st.markdown("---")
+                            st.subheader("Evaluation Metrics on Uploaded Data")
+                            
+                            col1, col2, col3, col4 = st.columns(4)
+                            col1.metric("Accuracy", f"{mts.accuracy_score(y_true_upload, y_pred_upload):.4f}")
+                            col2.metric("Precision", f"{mts.precision_score(y_true_upload, y_pred_upload, zero_division=0):.4f}")
+                            col3.metric("Recall", f"{mts.recall_score(y_true_upload, y_pred_upload, zero_division=0):.4f}")
+                            col4.metric("F1 Score", f"{mts.f1_score(y_true_upload, y_pred_upload, zero_division=0):.4f}")
+                            
+                            col_cm, col_cr = st.columns(2)
+                            
+                            with col_cm:
+                                st.markdown("**Confusion Matrix**")
+                                st.pyplot(plot_confusion_matrix(y_true_upload, y_pred_upload))
+                                
+                            with col_cr:
+                                st.markdown("**Classification Report**")
+                                report_upload = mts.classification_report(y_true_upload, y_pred_upload, output_dict=True)
+                                st.dataframe(pd.DataFrame(report_upload).transpose().style.format("{:.3f}"))
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
+
     # Footer
     st.markdown("---")
     st.markdown("""
@@ -441,4 +585,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
